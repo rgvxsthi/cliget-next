@@ -1,63 +1,215 @@
+:root {
+  --bg: #ffffff;
+  --fg: #15141a;
+  --muted: #5b5b66;
+  --border: rgba(20, 20, 30, 0.16);
+  --subtle: rgba(20, 20, 30, 0.05);
+  --hover: rgba(20, 20, 30, 0.08);
+  --accent: #0a63d3;
+  --accent-fg: #ffffff;
+  --danger: #b3261e;
+  --ok: #1a7f37;
+  --radius: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1b22;
+    --fg: #fbfbfe;
+    --muted: #b0b0bb;
+    --border: rgba(255, 255, 255, 0.2);
+    --subtle: rgba(255, 255, 255, 0.06);
+    --hover: rgba(255, 255, 255, 0.11);
+    --accent: #6ba9ff;
+    --accent-fg: #101018;
+    --danger: #ff9aa2;
+    --ok: #7ee08a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
-  min-width: 400px;
-  max-width: 800px;
+  margin: 0;
+  width: 480px;
+  font:
+    13px/1.45 system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+h1 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.item {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.item:hover,
+.item:focus-visible {
+  background: var(--hover);
+}
+
+.item.new {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.size {
+  color: var(--muted);
 }
 
 textarea {
-  border-width: 0 !important;
-  font-family: monospace !important;
-  margin: 2px !important;
-  padding: 3px !important;
-  resize: none;
+  display: block;
+  width: 100%;
+  min-height: 190px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--subtle);
+  color: inherit;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bar .spacer {
+  flex: 1;
+}
+
+button {
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--subtle);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--hover);
+}
+
+button.primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.status.ok {
+  color: var(--ok);
+}
+
+.status.error {
+  color: var(--danger);
 }
 
 .options {
-  padding: 10px;
-  background-color: rgba(0, 0, 0, 0.06);
-  border-top: 1px solid rgba(0, 0, 0, 0.15);
+  padding: 10px 12px 12px;
+  background: var(--subtle);
 }
 
-.reset {
-  float: right;
-  font-size: 80%;
+.options fieldset {
+  margin: 0 0 10px;
+  padding: 0;
+  border: 0;
 }
 
-input[type="text"] {
-  font-family: monospace;
+.options legend {
+  padding: 0 0 5px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-label {
-  margin-right: 1em;
-  line-height: 2.00;
-  display: inline-block;
+.field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 
-label.text-input {
-  display: block;
-  margin: 0;
-  clear: both;
+.field label {
+  flex: 0 0 132px;
+  color: var(--muted);
 }
 
-label.text-input input[type="text"] {
-  width: 35em;
-  float: right;
+.field input[type="text"],
+.field input[type="number"],
+.field select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
 }
 
-.panel-section-tabs-separator {
-  margin: 8px 0;
+.field.check {
+  gap: 6px;
 }
 
-.panel-section-tabs-button {
-  text-align: unset;
-  margin: 0;
-  overflow: hidden;
+.field.check label {
+  flex: 1;
+  color: inherit;
 }
 
-.panel-section-footer-button {
-  text-align: unset;
-  margin: 0;
-}
-
-.file-size {
-  opacity: 0.5;
+.hint {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
 }

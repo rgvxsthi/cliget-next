@@ -1,301 +1,400 @@
 "use strict";
 
+import { api } from "./lib/browser.js";
+import { COMMANDS, defaultOptions, generateCommand } from "./lib/options.js";
+import { filterHeaders } from "./lib/headers.js";
+import { aria2RpcPayload } from "./lib/aria2-queue.js";
+import { gopeedPayload } from "./lib/gopeed.js";
+import { ARIA2_BINARIES } from "./lib/aria2.js";
+
+const app = document.getElementById("app");
+
+const send = (...msg) => api.runtime.sendMessage(msg);
+
 function fileSizeToText(size) {
-  let unit = "B";
-  if (size >= 1024) {
-    size /= 1024;
-    unit = "KB";
-
-    if (size >= 1024) {
-      size /= 1024;
-      unit = "MB";
-
-      if (size >= 1024) {
-        size /= 1024;
-        unit = "GB";
-      }
-    }
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = size;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
   }
-
-  return `${size.toFixed(1)} ${unit}`;
+  return `${value.toFixed(unit ? 1 : 0)} ${units[unit]}`;
 }
 
-function renderOptionsElement(body, type, name, value, label, help, callback) {
-  const labelEl = document.createElement("label");
-  labelEl.title = help;
-  labelEl.htmlFor = name;
-
-  const input = document.createElement("input");
-  input.id = name;
-  input.name = name;
-  input.type = type;
-  if (type === "checkbox" || type === "radio") input.checked = value;
-  else input.value = value;
-
-  input.onchange = callback;
-
-  if (type === "text") {
-    labelEl.classList.add("text-input", "browser-style");
-    labelEl.appendChild(document.createTextNode(label + ":"));
-    labelEl.appendChild(input);
-    body.appendChild(labelEl);
-  } else {
-    labelEl.appendChild(document.createTextNode(label));
-    body.appendChild(input);
-    body.appendChild(labelEl);
-  }
+function el(tag, props = {}, children = []) {
+  const node = Object.assign(document.createElement(tag), props);
+  for (const child of [].concat(children))
+    node.append(child instanceof Node ? child : document.createTextNode(child));
+  return node;
 }
 
-function renderOptions(body, options, callback) {
-  function onchange(event) {
-    let ops = {};
-    let target = event.target;
-    if (target.type === "radio") ops["command"] = target.name;
-    else if (target.type === "checkbox") ops[target.name] = target.checked;
-    else if (target.type === "text") ops[target.name] = target.value;
-
-    callback(ops);
-  }
-
-  function resetCallback() {
-    callback();
-  }
-
-  let reset = document.createElement("button");
-  reset.classList.add("reset", "browser-style");
-  reset.onclick = resetCallback;
-  reset.textContent = "Reset";
-  body.appendChild(reset);
-
-  let command = document.createElement("div");
-  command.classList.add("command", "browser-style");
-  renderOptionsElement(
-    command,
-    "radio",
-    "curl",
-    options.command === "curl",
-    "curl",
-    "Generate curl command.",
-    onchange
-  );
-  renderOptionsElement(
-    command,
-    "radio",
-    "wget",
-    options.command === "wget",
-    "wget",
-    "Generate wget command.",
-    onchange
-  );
-  renderOptionsElement(
-    command,
-    "radio",
-    "aria2",
-    options.command === "aria2",
-    "aria2",
-    "Generate aria2 command.",
-    onchange
-  );
-
-  let common = document.createElement("div");
-  common.classList.add("common", "browser-style");
-  renderOptionsElement(
-    common,
-    "checkbox",
-    "doubleQuotes",
-    options.doubleQuotes,
-    "Escape with double-quotes",
-    'Use double quotation marks (") for command-line arguments. Enable this if you plan to *execute* the commands on a Windows machine.',
-    onchange
-  );
-  renderOptionsElement(
-    common,
-    "text",
-    "excludeHeaders",
-    options.excludeHeaders,
-    "Exclude headers",
-    "Exclude request headers from the generated command.",
-    onchange
-  );
-
-  let extra = document.createElement("div");
-  extra.classList.add("extra", "browser-style");
-
-  if (options.command === "curl")
-    renderOptionsElement(
-      extra,
-      "text",
-      "curlOptions",
-      options.curlOptions,
-      "Extra curl arguments",
-      "Add extra command-line arguments to be appended to the curl command.",
-      onchange
-    );
-
-  if (options.command === "wget")
-    renderOptionsElement(
-      extra,
-      "text",
-      "wgetOptions",
-      options.wgetOptions,
-      "Extra wget arguments",
-      "Add extra command-line arguments to be appended to the curl command.",
-      onchange
-    );
-
-  if (options.command === "aria2")
-    renderOptionsElement(
-      extra,
-      "text",
-      "aria2Options",
-      options.aria2Options,
-      "Extra aria2 arguments",
-      "Add extra command-line arguments to be appended to the curl command.",
-      onchange
-    );
-
-  body.appendChild(command);
-  body.appendChild(common);
-  body.appendChild(extra);
+function clear() {
+  app.replaceChildren();
 }
 
-function showCommand(requestId, options) {
-  if (!options) {
-    browser.runtime.sendMessage(["getOptions"]).then((opts) => {
-      showCommand(requestId, opts);
-    });
-    return;
-  }
+/* ------------------------------------------------------------------ */
+/* Options form                                                        */
+/* ------------------------------------------------------------------ */
 
-  browser.runtime
-    .sendMessage(["generateCommand", requestId, options])
-    .then((cmd) => {
-      const body = document.body;
-      while (body.firstChild) body.removeChild(body.firstChild);
+const COMMON_FIELDS = [
+  {
+    key: "trimNoiseHeaders",
+    type: "checkbox",
+    label: "Drop tracking/noise headers",
+    help: "Removes Sec-Fetch-*, DNT, client hints and other headers that carry no authentication.",
+  },
+  {
+    key: "wrapLines",
+    type: "checkbox",
+    label: "Wrap long commands",
+    help: "Break the command across lines with backslash continuations.",
+  },
+  {
+    key: "doubleQuotes",
+    type: "checkbox",
+    label: "Escape with double-quotes",
+    help: "For Windows cmd.exe, which has no single-quote syntax. Do NOT paste the result into a POSIX shell.",
+  },
+  {
+    key: "excludeHeaders",
+    type: "text",
+    label: "Exclude headers",
+    help: "Extra header names to leave out, separated by spaces.",
+  },
+];
 
-      const textArea = document.createElement("textarea");
-      textArea.classList.add("browser-style");
-      textArea.cols = 80;
-      textArea.rows = 15;
-      textArea.value = cmd;
+const COMMAND_FIELDS = {
+  aria2: [
+    {
+      key: "aria2Binary",
+      type: "select",
+      label: "Binary",
+      options: ARIA2_BINARIES,
+      help: "aria2-next is a maintained fork of aria2 with the same options.",
+    },
+    {
+      key: "aria2Tuning",
+      type: "checkbox",
+      label: "Fast defaults",
+      help: "Segmented download, resume, retries. Without this aria2 uses ONE connection.",
+    },
+    {
+      key: "aria2Connections",
+      type: "number",
+      label: "Connections",
+      min: 1,
+      max: 16,
+      help: "aria2 accepts at most 16 connections per server.",
+    },
+    {
+      key: "aria2FileAllocation",
+      type: "select",
+      label: "File allocation",
+      options: ["falloc", "prealloc", "trunc", "none"],
+      help: "falloc is instant on ext4/btrfs/xfs/NTFS. Use none on FAT32/HFS+ or network shares.",
+    },
+    { key: "aria2Options", type: "text", label: "Extra arguments" },
+  ],
+  curl: [
+    {
+      key: "curlTuning",
+      type: "checkbox",
+      label: "Robust defaults",
+      help: "Follow redirects, resume, retry, and fail on HTTP errors instead of saving the error page.",
+    },
+    { key: "curlOptions", type: "text", label: "Extra arguments" },
+  ],
+  wget: [
+    { key: "wgetTuning", type: "checkbox", label: "Robust defaults" },
+    { key: "wgetOptions", type: "text", label: "Extra arguments" },
+  ],
+  "aria2-rpc": [
+    { key: "aria2RpcUrl", type: "text", label: "RPC endpoint" },
+    { key: "aria2RpcSecret", type: "text", label: "RPC secret" },
+    {
+      key: "aria2Connections",
+      type: "number",
+      label: "Connections",
+      min: 1,
+      max: 16,
+    },
+  ],
+  "aria2-input": [
+    { key: "aria2QueueFile", type: "text", label: "Queue file" },
+    {
+      key: "aria2Binary",
+      type: "select",
+      label: "Binary",
+      options: ARIA2_BINARIES,
+    },
+    {
+      key: "aria2Connections",
+      type: "number",
+      label: "Connections",
+      min: 1,
+      max: 16,
+    },
+  ],
+  gopeed: [
+    { key: "gopeedUrl", type: "text", label: "Server" },
+    { key: "gopeedToken", type: "text", label: "API token" },
+    { key: "gopeedPath", type: "text", label: "Download path" },
+    {
+      key: "gopeedConnections",
+      type: "number",
+      label: "Connections",
+      min: 1,
+      max: 64,
+      alias: "aria2Connections",
+    },
+  ],
+};
 
-      let optionsDiv = document.createElement("div");
-      optionsDiv.classList.add("options");
-      renderOptions(optionsDiv, options, (optionsUpdate) => {
-        if (!optionsUpdate)
-          browser.runtime.sendMessage(["resetOptions"]).then((newOptions) => {
-            showCommand(requestId, newOptions);
-          });
-        else
-          browser.runtime
-            .sendMessage(["setOptions", optionsUpdate])
-            .then((newOptions) => {
-              showCommand(requestId, newOptions);
-            });
-      });
-      body.appendChild(textArea);
-      body.appendChild(optionsDiv);
-      textArea.focus();
-      textArea.select();
-    });
-}
-
-function showList(downloadList, highlight) {
-  const body = document.body;
-  while (body.firstChild) body.removeChild(body.firstChild);
-
-  if (!downloadList.length) {
-    let el = document.createElement("div");
-    el.style.margin = "20px";
-    el.textContent = "No downloads for this session.";
-    body.appendChild(el);
-    return;
-  }
-
-  for (let i = downloadList.length - 1; i >= 0; --i) {
-    const req = downloadList[i];
-
-    const row = document.createElement("div");
-    row.classList.add("panel-section", "panel-section-tabs");
-    if (highlight-- > 0) row.classList.add("highlight");
-    body.appendChild(row);
-
-    const buttonElement = document.createElement("div");
-    buttonElement.classList.add("panel-section-tabs-button");
-    buttonElement.title = req.url;
-    buttonElement.onclick = function () {
-      showCommand(req.id);
-    };
-
-    let fileNameSpan = document.createElement("span");
-    if (req.size) {
-      fileNameSpan.textContent = req.filename + " ";
-      let sizeSpan = document.createElement("span");
-      sizeSpan.classList.add("file-size");
-      sizeSpan.textContent = `(${fileSizeToText(req.size)})`;
-      fileNameSpan.appendChild(sizeSpan);
-    } else {
-      fileNameSpan.textContent = req.filename;
-    }
-
-    buttonElement.appendChild(fileNameSpan);
-    row.appendChild(buttonElement);
-
-    if (i) {
-      let sep = document.createElement("div");
-      sep.classList.add("panel-section-separator");
-      body.appendChild(sep);
-    }
-  }
-
-  let footer = document.createElement("div");
-  footer.classList.add("panel-section", "panel-section-footer");
-  body.appendChild(footer);
-  let clearButton = document.createElement("div");
-  clearButton.classList.add("panel-section-footer-button");
-  clearButton.textContent = "Clear all";
-  clearButton.onclick = function () {
-    browser.runtime.sendMessage(["clear"]).then(() => window.close());
-  };
-  footer.appendChild(clearButton);
-}
-
-function applyTheme(theme) {
-  if (!theme || !theme.colors) return;
-  const colors = theme.colors;
-  const styleEl = document.createElement("style");
-  document.head.appendChild(styleEl);
-  const rules = [
-    `body { color: ${colors.popup_text}; background-color: ${colors.popup}; }`,
-    `.panel-section-tabs { color: ${colors.popup_text}; }`,
-    `.panel-section-footer { color: ${colors.popup_text}; background-color: rgba(128, 128, 128, 0.12); border-top-color: rgba(128, 128, 128, 0.30); }`,
-    `.panel-section-separator { background-color: rgba(128, 128, 128, 0.30); }`,
-    `.options { background-color: rgba(128, 128, 128, 0.12); border-top-color: rgba(128, 128, 128, 0.30); }`,
-  ];
-
-  if (colors.popup_heightlight)
-    rules.push(
-      `.panel-section-tabs-button:hover { color: ${colors.popup_heightlight_text}; background-color: ${colors.popup_heightlight}; }`,
-      `.panel-section-footer-button:hover { color: ${colors.popup_heightlight_text}; background-color: ${colors.popup_heightlight}; }`
-    );
-  else
-    rules.push(
-      `.panel-section-tabs-button:hover { background-color: rgba(128, 128, 128, 0.12); }`,
-      `.panel-section-footer-button:hover { background-color: rgba(128, 128, 128, 0.12); }`
-    );
-
-  for (const rule of rules) styleEl.sheet.insertRule(rule);
-}
-
-document.addEventListener("DOMContentLoaded", () => {
-  Promise.all([
-    browser.runtime.sendMessage(["getDownloadList"]),
-    browser.browserAction.getBadgeText({}),
-    browser.theme.getCurrent(),
-  ]).then(([list, txt, theme]) => {
-    let highlight = +txt;
-    browser.browserAction.setBadgeText({ text: "" });
-    applyTheme(theme);
-    showList(list, highlight);
+function renderField(field, options, onChange) {
+  const key = field.alias || field.key;
+  const id = `f-${field.key}`;
+  const row = el("div", {
+    className: `field${field.type === "checkbox" ? " check" : ""}`,
   });
-});
+  const label = el(
+    "label",
+    { htmlFor: id, title: field.help || "" },
+    field.label
+  );
+
+  let input;
+  if (field.type === "select") {
+    input = el("select", { id });
+    for (const value of field.options)
+      input.append(
+        el("option", { value, selected: options[key] === value }, value)
+      );
+  } else {
+    input = el("input", { id, type: field.type });
+    if (field.type === "checkbox") input.checked = Boolean(options[key]);
+    else input.value = options[key] ?? "";
+    if (field.min != null) input.min = field.min;
+    if (field.max != null) input.max = field.max;
+  }
+
+  input.title = field.help || "";
+  input.addEventListener("change", () =>
+    onChange({
+      [key]: field.type === "checkbox" ? input.checked : input.value,
+    })
+  );
+
+  if (field.type === "checkbox") row.append(input, label);
+  else row.append(label, input);
+
+  return row;
+}
+
+function renderOptions(options, onChange, onReset) {
+  const wrap = el("div", { className: "options" });
+
+  const commandRow = el("div", { className: "field" });
+  const select = el("select", { id: "f-command" });
+  for (const [value, meta] of Object.entries(COMMANDS))
+    select.append(
+      el(
+        "option",
+        { value, selected: options.command === value, title: meta.help },
+        meta.label
+      )
+    );
+  select.addEventListener("change", () => onChange({ command: select.value }));
+  commandRow.append(el("label", { htmlFor: "f-command" }, "Command"), select);
+  wrap.append(commandRow);
+
+  const meta = COMMANDS[options.command];
+  if (meta?.help) wrap.append(el("p", { className: "hint" }, meta.help));
+
+  const specific = el("fieldset");
+  specific.append(el("legend", {}, meta?.label || options.command));
+  for (const field of COMMAND_FIELDS[options.command] || [])
+    specific.append(renderField(field, options, onChange));
+  wrap.append(specific);
+
+  const common = el("fieldset");
+  common.append(el("legend", {}, "All commands"));
+  for (const field of COMMON_FIELDS)
+    common.append(renderField(field, options, onChange));
+  wrap.append(common);
+
+  const reset = el("button", {}, "Reset to defaults");
+  reset.addEventListener("click", onReset);
+  wrap.append(reset);
+
+  return wrap;
+}
+
+/* ------------------------------------------------------------------ */
+/* Queue submission                                                    */
+/* ------------------------------------------------------------------ */
+
+const QUEUEABLE = new Set(["aria2-rpc", "gopeed"]);
+
+async function submitToQueue(request, options) {
+  const headers = filterHeaders(request.headers, options);
+
+  if (options.command === "aria2-rpc") {
+    const res = await fetch(options.aria2RpcUrl || defaultOptions.aria2RpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        aria2RpcPayload(request.url, headers, request.filename, options)
+      ),
+    });
+    const json = await res.json();
+    if (json.error) throw new Error(json.error.message || "aria2 rejected it");
+    return `Queued as ${json.result}`;
+  }
+
+  const base = (options.gopeedUrl || defaultOptions.gopeedUrl).replace(
+    /\/+$/,
+    ""
+  );
+  const res = await fetch(`${base}/api/v1/tasks`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.gopeedToken ? { "X-Api-Token": options.gopeedToken } : {}),
+    },
+    body: JSON.stringify(
+      gopeedPayload(request.url, headers, request.filename, options)
+    ),
+  });
+  const json = await res.json();
+  if (json.code !== 0) throw new Error(json.msg || `Gopeed error ${json.code}`);
+  return "Queued in Gopeed";
+}
+
+/* ------------------------------------------------------------------ */
+/* Views                                                               */
+/* ------------------------------------------------------------------ */
+
+function showCommand(request, options) {
+  clear();
+
+  const header = el("header");
+  const back = el("button", {}, "← Back");
+  back.addEventListener("click", () => start());
+  header.append(back, el("h1", {}, request.filename || "download"));
+  app.append(header);
+
+  let command;
+  try {
+    command = generateCommand(request, options);
+  } catch (err) {
+    command = `# ${err.message}`;
+  }
+
+  const textArea = el("textarea", { spellcheck: false, value: command });
+  app.append(textArea);
+
+  const bar = el("div", { className: "bar" });
+  const status = el("span", { className: "status" });
+
+  const copy = el("button", { className: "primary" }, "Copy");
+  copy.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(textArea.value);
+    status.className = "status ok";
+    status.textContent = "Copied";
+  });
+  bar.append(copy);
+
+  if (QUEUEABLE.has(options.command)) {
+    const queue = el("button", {}, "Send now");
+    queue.addEventListener("click", async () => {
+      queue.disabled = true;
+      status.className = "status";
+      status.textContent = "Sending…";
+      try {
+        status.textContent = await submitToQueue(request, options);
+        status.className = "status ok";
+      } catch (err) {
+        status.className = "status error";
+        status.textContent = err.message;
+      } finally {
+        queue.disabled = false;
+      }
+    });
+    bar.append(queue);
+  }
+
+  bar.append(el("span", { className: "spacer" }), status);
+  app.append(bar);
+
+  const rerender = async (update) => {
+    showCommand(request, await send("setOptions", update));
+  };
+  const reset = async () => showCommand(request, await send("resetOptions"));
+
+  app.append(renderOptions(options, rerender, reset));
+
+  textArea.focus();
+  textArea.select();
+}
+
+function showList(list, highlight, options) {
+  clear();
+
+  app.append(
+    el("header", {}, [
+      el("h1", {}, "cliget"),
+      (() => {
+        const clearAll = el("button", {}, "Clear");
+        clearAll.addEventListener("click", async () => {
+          await send("clear");
+          showList([], 0, options);
+        });
+        return clearAll;
+      })(),
+    ])
+  );
+
+  if (!list.length) {
+    app.append(
+      el("div", { className: "empty" }, "No downloads captured this session.")
+    );
+    return;
+  }
+
+  const container = el("div", { className: "list" });
+
+  for (let i = list.length - 1; i >= 0; --i) {
+    const request = list[i];
+    const isNew = list.length - i <= highlight;
+
+    const label = [el("span", {}, request.filename || request.url)];
+    if (request.size)
+      label.push(
+        el("span", { className: "size" }, ` (${fileSizeToText(request.size)})`)
+      );
+
+    const button = el(
+      "button",
+      { className: `item${isNew ? " new" : ""}`, title: request.url },
+      label
+    );
+    button.addEventListener("click", () => showCommand(request, options));
+    container.append(button);
+  }
+
+  app.append(container);
+}
+
+async function start() {
+  const [list, badge, options] = await Promise.all([
+    send("getDownloadList"),
+    api.action.getBadgeText({}),
+    send("getOptions"),
+  ]);
+
+  await api.action.setBadgeText({ text: "" });
+  showList(list, +badge || 0, options);
+}
+
+start();

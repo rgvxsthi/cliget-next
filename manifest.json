@@ -1,45 +1,58 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "cliget",
-  "version": "2.1.0",
-  "description": "Download login-protected files from the command line.",
-
+  "version": "3.0.0",
+  "description": "Download login-protected files from the command line with curl, wget, aria2 or a download queue.",
+  "homepage_url": "https://github.com/rgvxsthi/cliget",
   "icons": {
-    "48": "icons/cliget.svg",
-    "96": "icons/cliget.svg"
+    "48": "icons/cliget-48.png",
+    "96": "icons/cliget-96.png",
+    "128": "icons/cliget-128.png"
   },
-  "homepage_url": "https://github.com/zaidka/cliget",
-
-  "permissions": ["webRequest", "storage", "<all_urls>"],
-
+  "permissions": [
+    "webRequest",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
-    "scripts": ["utils.js", "curl.js", "wget.js", "aria2.js", "background.js"]
+    "service_worker": "background.js",
+    "scripts": [
+      "background.js"
+    ],
+    "type": "module"
   },
-
-  "browser_action": {
-    "browser_style": true,
+  "action": {
     "default_title": "cliget",
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "icons/cliget-dark.svg",
-      "32": "icons/cliget-dark.svg"
+      "16": "icons/cliget-dark-16.png",
+      "32": "icons/cliget-dark-32.png"
     },
-    "theme_icons": [{
-      "dark": "icons/cliget-dark.svg",
-      "light": "icons/cliget-light.svg",
-      "size": 16
-    },
-    {
-      "dark": "icons/cliget-dark.svg",
-      "light": "icons/cliget-light.svg",
-      "size": 32
-    }]
+    "theme_icons": [
+      {
+        "dark": "icons/cliget-dark-16.png",
+        "light": "icons/cliget-light-16.png",
+        "size": 16
+      },
+      {
+        "dark": "icons/cliget-dark-32.png",
+        "light": "icons/cliget-light-32.png",
+        "size": 32
+      }
+    ]
   },
-
-  "applications": {
+  "browser_specific_settings": {
     "gecko": {
-       "id": "cliget@zaidabdulla.com",
-       "strict_min_version": "79.0"
+      "id": "cliget@zaidabdulla.com",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
     }
- }
+  },
+  "minimum_chrome_version": "120"
 }

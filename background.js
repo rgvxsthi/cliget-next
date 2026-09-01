@@ -1,244 +1,193 @@
 "use strict";
 
-const MAX_ITEMS = 10;
+import { api, sessionStore } from "./lib/browser.js";
+import { defaultOptions } from "./lib/options.js";
+import {
+  getFilenameFromContentDisposition,
+  getFilenameFromUrl,
+} from "./lib/filename.js";
 
-const downloads = new Map();
+const MAX_ITEMS = 20;
+const STORE_KEY = "downloads";
+const REQUEST_TTL_MS = 10000;
+
+/**
+ * Under MV3 the background context is not persistent: Chrome tears the
+ * service worker down after ~30s idle and Firefox suspends the event page.
+ * Anything that must outlive that goes to storage.session, which is cleared
+ * when the browser closes -- the right lifetime for captured cookies.
+ *
+ * `currentRequests` deliberately stays in memory only. It holds in-flight
+ * requests for at most a few seconds, and losing one just means that download
+ * is not offered.
+ */
 const currentRequests = new Map();
 
-const defaultOptions = {
-  doubleQuotes: false,
-  excludeHeaders: "Accept-Encoding Connection",
-  command: "curl",
-  curlOptions: "",
-  wgetOptions: "",
-  aria2Options: "",
-};
-
-function getOptions() {
-  return new Promise((resolve) => {
-    browser.storage.local.get().then((res) => {
-      res = Object.assign({}, defaultOptions, res);
-      resolve(res);
-    });
-  });
+async function readDownloads() {
+  const stored = await sessionStore.get(STORE_KEY);
+  return stored[STORE_KEY] || [];
 }
 
-function setOptions(values) {
-  new Promise((resolve) => {
-    browser.storage.local.set(values).then(() =>
-      getOptions().then((c) => {
-        resolve(c);
-      })
-    );
-  });
+async function writeDownloads(list) {
+  await sessionStore.set({ [STORE_KEY]: list.slice(-MAX_ITEMS) });
 }
 
-function resetOptions() {
-  new Promise((resolve) => {
-    browser.storage.local.clear().then(() =>
-      getOptions().then((c) => {
-        resolve(c);
-      })
-    );
-  });
+export async function getOptions() {
+  const stored = await api.storage.local.get();
+  return { ...defaultOptions, ...stored };
 }
 
-function clear() {
-  downloads.clear();
+async function setOptions(values) {
+  await api.storage.local.set(values);
+  return getOptions();
 }
 
-function getDownloadList() {
-  const list = [];
-  for (let [reqId, req] of downloads)
-    list.push({
-      id: reqId,
-      url: req.url,
-      filename: req.filename,
-      size: req.size,
-    });
-
-  return list;
+async function resetOptions() {
+  await api.storage.local.clear();
+  return getOptions();
 }
 
-function generateCommand(reqId, options) {
-  const request = downloads.get(reqId);
-  if (!request) throw new Error("Request not found");
-
-  let excludeHeaders = options.excludeHeaders
-    .split(" ")
-    .map((h) => h.toLowerCase());
-
-  let headers = request.headers.filter(
-    (h) => excludeHeaders.indexOf(h.name.toLowerCase()) === -1
-  );
-
-  const cmd = window[options.command](
-    request.url,
-    request.method,
-    headers,
-    request.payload,
-    request.filename,
-    options
-  );
-
-  return cmd;
+function expireStaleRequests(now) {
+  for (const [id, req] of currentRequests)
+    if (req.timestamp + REQUEST_TTL_MS < now) currentRequests.delete(id);
 }
 
-function handleMessage(msg) {
-  const name = msg[0];
-  const args = msg.slice(1);
-
-  if (name === "getOptions") return getOptions();
-  else if (name === "setOptions") return setOptions(...args);
-  else if (name === "resetOptions") return resetOptions();
-  else if (name === "getDownloadList")
-    return new Promise((resolve) => resolve(getDownloadList()));
-  else if (name === "clear") return clear(...args);
-  else if (name === "generateCommand")
-    return new Promise((resolve) => {
-      try {
-        resolve(generateCommand(...args));
-      } catch (err) {
-        resolve(err.message);
-      }
-    });
+async function bumpBadge() {
+  const text = await api.action.getBadgeText({});
+  await api.action.setBadgeText({ text: `${(+text || 0) + 1}` });
 }
 
-browser.runtime.onMessage.addListener(handleMessage);
-
-function onBeforeRequest(details) {
-  if (
+function isDownloadable(details) {
+  return (
     (details.type === "main_frame" || details.type === "sub_frame") &&
     details.tabId >= 0
-  ) {
-    const now = Date.now();
+  );
+}
 
-    // Just in case of a leak
-    currentRequests.forEach((req, reqId) => {
-      if (req.timestamp + 10000 < now) currentRequests.delete(reqId);
-    });
+function onBeforeRequest(details) {
+  if (!isDownloadable(details)) return;
 
-    const req = {
-      id: details.requestId,
-      method: details.method,
-      url: details.url,
-      timestamp: now,
-      payload: details.requestBody,
-    };
-    currentRequests.set(details.requestId, req);
-  }
+  const now = Date.now();
+  expireStaleRequests(now);
+
+  currentRequests.set(details.requestId, {
+    id: details.requestId,
+    method: details.method,
+    url: details.url,
+    timestamp: now,
+    payload: details.requestBody,
+  });
 }
 
 function onSendHeaders(details) {
   const req = currentRequests.get(details.requestId);
+
   if (req) {
     req.headers = details.requestHeaders;
-  } else if (
-    (details.type === "main_frame" || details.type === "sub_frame") &&
-    details.tabId >= 0 &&
-    details.method === "GET"
-  ) {
-    // Firefox 52 (ESR) doesn't call "onBeforeRequest" because requestBody
-    // property isn't supported
-    const now = Date.now();
-
-    // Just in case of a leak
-    currentRequests.forEach((r, reqId) => {
-      if (r.timestamp + 10000 < now) currentRequests.delete(reqId);
-    });
-
-    currentRequests.set(details.requestId, {
-      id: details.requestId,
-      method: details.method,
-      url: details.url,
-      timestamp: now,
-      headers: details.requestHeaders,
-    });
+    return;
   }
+
+  if (!isDownloadable(details) || details.method !== "GET") return;
+
+  const now = Date.now();
+  expireStaleRequests(now);
+
+  currentRequests.set(details.requestId, {
+    id: details.requestId,
+    method: details.method,
+    url: details.url,
+    timestamp: now,
+    headers: details.requestHeaders,
+  });
 }
 
-function onResponseStarted(details) {
-  const request = currentRequests.get(details.requestId);
+/** Content types the browser renders itself rather than downloading. */
+const INLINE_TYPES = [
+  "text/html",
+  "text/plain",
+  "image/",
+  "application/xhtml",
+  "application/xml",
+];
 
+async function onResponseStarted(details) {
+  const request = currentRequests.get(details.requestId);
   if (!request) return;
 
   currentRequests.delete(details.requestId);
 
   if (details.statusCode !== 200 || details.fromCache) return;
 
-  let contentType, contentDisposition;
+  let contentType = "";
+  let contentDisposition = "";
 
-  for (let header of details.responseHeaders) {
-    let headerName = header.name.toLowerCase();
-    if (headerName === "content-type") {
-      contentType = header.value.toLowerCase();
-    } else if (headerName === "content-disposition") {
+  for (const header of details.responseHeaders || []) {
+    const name = header.name.toLowerCase();
+    if (name === "content-type") contentType = header.value.toLowerCase();
+    else if (name === "content-disposition") {
       contentDisposition = header.value.toLowerCase();
-      request.filename = window.getFilenameFromContentDisposition(header.value);
-    } else if (headerName === "content-length") {
-      request.size = +header.value;
-    }
+      request.filename = getFilenameFromContentDisposition(header.value);
+    } else if (name === "content-length") request.size = +header.value;
   }
 
-  if (!contentDisposition || !contentDisposition.startsWith("attachment"))
-    if (
-      contentType.startsWith("text/html") ||
-      contentType.startsWith("text/plain") ||
-      contentType.startsWith("image/") ||
-      contentType.startsWith("application/xhtml") ||
-      contentType.startsWith("application/xml")
-    )
-      return;
+  const isAttachment = contentDisposition.startsWith("attachment");
+  if (!isAttachment && INLINE_TYPES.some((t) => contentType.startsWith(t)))
+    return;
 
-  if (!request.filename)
-    request.filename = window.getFilenameFromUrl(request.url);
+  if (!request.filename) request.filename = getFilenameFromUrl(request.url);
 
-  downloads.set(details.requestId, request);
-
-  browser.browserAction.getBadgeText({}).then((txt) => {
-    browser.browserAction.setBadgeText({ text: `${+txt + 1}` });
-  });
-
-  if (downloads.size > MAX_ITEMS) {
-    let keys = Array.from(downloads.keys());
-    keys.slice(0, keys.length - MAX_ITEMS).forEach((k) => downloads.delete(k));
-  }
+  const list = await readDownloads();
+  await writeDownloads([...list.filter((r) => r.id !== request.id), request]);
+  await bumpBadge();
 }
 
-function onBeforeRedirect() {
-  // Need to listen to this event otherwise the new request will include
-  // the old URL. This is possibly a bug.
-}
+const handlers = {
+  getOptions,
+  setOptions,
+  resetOptions,
+  getDownloadList: readDownloads,
+  clear: () => writeDownloads([]),
+};
 
-function onErrorOccurred(details) {
-  currentRequests.delete(details.requestId);
-}
+api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  const [name, ...args] = msg;
+  const handler = handlers[name];
+  if (!handler) return false;
 
-browser.webRequest.onBeforeRedirect.addListener(onBeforeRedirect, {
-  urls: ["<all_urls>"],
+  Promise.resolve(handler(...args)).then(sendResponse, (err) =>
+    sendResponse({ error: err.message })
+  );
+
+  // Keep the message channel open for the async reply.
+  return true;
 });
 
-browser.webRequest.onErrorOccurred.addListener(onErrorOccurred, {
-  urls: ["<all_urls>"],
-});
-
-browser.webRequest.onBeforeRequest.addListener(
+api.webRequest.onBeforeRequest.addListener(
   onBeforeRequest,
   { urls: ["<all_urls>"] },
   ["requestBody"]
 );
-browser.webRequest.onSendHeaders.addListener(
+
+api.webRequest.onSendHeaders.addListener(
   onSendHeaders,
   { urls: ["<all_urls>"] },
   ["requestHeaders"]
 );
 
-browser.webRequest.onResponseStarted.addListener(
+api.webRequest.onResponseStarted.addListener(
   onResponseStarted,
-  {
-    urls: ["<all_urls>"],
-  },
+  { urls: ["<all_urls>"] },
   ["responseHeaders"]
 );
 
-browser.browserAction.setBadgeBackgroundColor({ color: "#4a90d9" });
+// Without a listener here the follow-up request is reported with the old URL.
+api.webRequest.onBeforeRedirect.addListener(() => {}, {
+  urls: ["<all_urls>"],
+});
+
+api.webRequest.onErrorOccurred.addListener(
+  (details) => currentRequests.delete(details.requestId),
+  { urls: ["<all_urls>"] }
+);
+
+api.action.setBadgeBackgroundColor({ color: "#4a90d9" });
