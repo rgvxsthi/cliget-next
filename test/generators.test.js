@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { defaultOptions, generateCommand } from "../lib/options.js";
+import { COMMANDS, defaultOptions, generateCommand } from "../lib/options.js";
+import {
+  COMMAND_FIELDS,
+  COMMON_FIELDS,
+  FIELDS,
+  SETTINGS_GROUPS,
+} from "../lib/fields.js";
 import { aria2RpcPayload, optionMap } from "../lib/aria2-queue.js";
 import { gopeedPayload } from "../lib/gopeed.js";
 import { filterHeaders } from "../lib/headers.js";
@@ -73,9 +79,9 @@ test("aria2 segments the download and keeps auth headers", () => {
 });
 
 test("aria2 connection count is clamped to what aria2 accepts", () => {
-  assert.match(gen({ aria2Connections: "64" }), /--split=16/);
-  assert.match(gen({ aria2Connections: "4" }), /--split=4/);
-  assert.match(gen({ aria2Connections: "junk" }), /--split=16/);
+  assert.match(gen({ connections: "64" }), /--split=16/);
+  assert.match(gen({ connections: "4" }), /--split=4/);
+  assert.match(gen({ connections: "junk" }), /--split=16/);
 });
 
 test("aria2 tuning can be turned off", () => {
@@ -223,7 +229,7 @@ test("Gopeed payload matches the REST task schema", () => {
     URL_,
     filterHeaders(REQUEST.headers, defaultOptions),
     "Game.7z",
-    { ...defaultOptions, aria2Connections: "32" }
+    { ...defaultOptions, connections: "32" }
   );
 
   assert.equal(payload.req.url, URL_);
@@ -242,4 +248,55 @@ test("Gopeed command posts to the tasks endpoint with the token", () => {
 
   assert.match(cmd, /--header 'X-Api-Token: tok'/);
   assert.ok(cmd.trimEnd().endsWith("'http://box:9999/api/v1/tasks'"));
+});
+
+/* -------------------------------------------------------------------- */
+/* Settings UI wiring                                                    */
+/* -------------------------------------------------------------------- */
+
+test("every field referenced by a layout exists in the registry", () => {
+  const referenced = [
+    ...COMMON_FIELDS,
+    ...Object.values(COMMAND_FIELDS).flat(),
+    ...SETTINGS_GROUPS.flatMap((g) => g.fields),
+  ];
+
+  for (const key of referenced)
+    assert.ok(FIELDS[key], `layout references unknown field: ${key}`);
+});
+
+test("every field maps to a real option", () => {
+  for (const key of Object.keys(FIELDS))
+    assert.ok(
+      key in defaultOptions,
+      `field ${key} has no matching default option`
+    );
+});
+
+test("every command has a popup field list", () => {
+  for (const key of Object.keys(COMMANDS))
+    assert.ok(COMMAND_FIELDS[key], `no popup fields for command ${key}`);
+});
+
+test("the settings page exposes every configurable option", () => {
+  // optionsExpanded is UI state the panel writes itself, not a setting.
+  const internal = new Set(["optionsExpanded"]);
+  const onPage = new Set(SETTINGS_GROUPS.flatMap((g) => g.fields));
+
+  for (const key of Object.keys(defaultOptions))
+    if (!internal.has(key))
+      assert.ok(onPage.has(key), `settings page is missing ${key}`);
+});
+
+test("select fields enumerate valid values", () => {
+  for (const [key, field] of Object.entries(FIELDS)) {
+    if (field.type !== "select") continue;
+    const values = field.options();
+    assert.ok(values.length > 0, `${key} has no options`);
+    if (key !== "command")
+      assert.ok(
+        values.includes(defaultOptions[key]),
+        `default for ${key} is not one of its options`
+      );
+  }
 });

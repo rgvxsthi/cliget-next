@@ -33,7 +33,6 @@
 
 body {
   margin: 0;
-  width: 480px;
   font:
     13px/1.45 system-ui,
     -apple-system,
@@ -41,6 +40,19 @@ body {
     sans-serif;
   color: var(--fg);
   background: var(--bg);
+}
+
+body.popup {
+  width: 480px;
+}
+
+body.page {
+  padding: 0 0 40px;
+}
+
+body.page main {
+  max-width: 660px;
+  margin: 0 auto;
 }
 
 h1 {
@@ -212,4 +224,62 @@ button.primary {
   margin: 0 0 8px;
   color: var(--muted);
   font-size: 12px;
+}
+
+/* Collapsible per-download options ---------------------------------- */
+
+.options {
+  background: var(--subtle);
+  border-top: 1px solid var(--border);
+}
+
+.options > summary {
+  padding: 8px 12px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.options > summary:hover {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+.options[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.options-body {
+  padding: 10px 12px 12px;
+}
+
+.bar.plain {
+  padding: 4px 0 0;
+  border-bottom: 0;
+}
+
+.hint.intro {
+  padding: 12px 12px 0;
+}
+
+body.page .options-body {
+  padding: 12px;
+}
+
+body.page fieldset {
+  margin-bottom: 18px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+body.page fieldset:last-of-type {
+  border-bottom: 0;
+}
+
+body.page .bar.plain {
+  padding: 0 12px;
+}
+
+body.page .field label {
+  flex: 0 0 170px;
 }

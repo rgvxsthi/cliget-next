@@ -1,11 +1,13 @@
 "use strict";
 
 import { api } from "./lib/browser.js";
+import { el } from "./lib/dom.js";
 import { COMMANDS, defaultOptions, generateCommand } from "./lib/options.js";
+import { COMMAND_FIELDS, COMMON_FIELDS } from "./lib/fields.js";
+import { renderField, renderFieldset } from "./lib/form-ui.js";
 import { filterHeaders } from "./lib/headers.js";
 import { aria2RpcPayload } from "./lib/aria2-queue.js";
 import { gopeedPayload } from "./lib/gopeed.js";
-import { ARIA2_BINARIES } from "./lib/aria2.js";
 
 const app = document.getElementById("app");
 
@@ -22,211 +24,61 @@ function fileSizeToText(size) {
   return `${value.toFixed(unit ? 1 : 0)} ${units[unit]}`;
 }
 
-function el(tag, props = {}, children = []) {
-  const node = Object.assign(document.createElement(tag), props);
-  for (const child of [].concat(children))
-    node.append(child instanceof Node ? child : document.createTextNode(child));
-  return node;
-}
-
 function clear() {
   app.replaceChildren();
 }
 
-/* ------------------------------------------------------------------ */
-/* Options form                                                        */
-/* ------------------------------------------------------------------ */
-
-const COMMON_FIELDS = [
-  {
-    key: "trimNoiseHeaders",
-    type: "checkbox",
-    label: "Drop tracking/noise headers",
-    help: "Removes Sec-Fetch-*, DNT, client hints and other headers that carry no authentication.",
-  },
-  {
-    key: "wrapLines",
-    type: "checkbox",
-    label: "Wrap long commands",
-    help: "Break the command across lines with backslash continuations.",
-  },
-  {
-    key: "doubleQuotes",
-    type: "checkbox",
-    label: "Escape with double-quotes",
-    help: "For Windows cmd.exe, which has no single-quote syntax. Do NOT paste the result into a POSIX shell.",
-  },
-  {
-    key: "excludeHeaders",
-    type: "text",
-    label: "Exclude headers",
-    help: "Extra header names to leave out, separated by spaces.",
-  },
-];
-
-const COMMAND_FIELDS = {
-  aria2: [
-    {
-      key: "aria2Binary",
-      type: "select",
-      label: "Binary",
-      options: ARIA2_BINARIES,
-      help: "aria2-next is a maintained fork of aria2 with the same options.",
-    },
-    {
-      key: "aria2Tuning",
-      type: "checkbox",
-      label: "Fast defaults",
-      help: "Segmented download, resume, retries. Without this aria2 uses ONE connection.",
-    },
-    {
-      key: "aria2Connections",
-      type: "number",
-      label: "Connections",
-      min: 1,
-      max: 16,
-      help: "aria2 accepts at most 16 connections per server.",
-    },
-    {
-      key: "aria2FileAllocation",
-      type: "select",
-      label: "File allocation",
-      options: ["falloc", "prealloc", "trunc", "none"],
-      help: "falloc is instant on ext4/btrfs/xfs/NTFS. Use none on FAT32/HFS+ or network shares.",
-    },
-    { key: "aria2Options", type: "text", label: "Extra arguments" },
-  ],
-  curl: [
-    {
-      key: "curlTuning",
-      type: "checkbox",
-      label: "Robust defaults",
-      help: "Follow redirects, resume, retry, and fail on HTTP errors instead of saving the error page.",
-    },
-    { key: "curlOptions", type: "text", label: "Extra arguments" },
-  ],
-  wget: [
-    { key: "wgetTuning", type: "checkbox", label: "Robust defaults" },
-    { key: "wgetOptions", type: "text", label: "Extra arguments" },
-  ],
-  "aria2-rpc": [
-    { key: "aria2RpcUrl", type: "text", label: "RPC endpoint" },
-    { key: "aria2RpcSecret", type: "text", label: "RPC secret" },
-    {
-      key: "aria2Connections",
-      type: "number",
-      label: "Connections",
-      min: 1,
-      max: 16,
-    },
-  ],
-  "aria2-input": [
-    { key: "aria2QueueFile", type: "text", label: "Queue file" },
-    {
-      key: "aria2Binary",
-      type: "select",
-      label: "Binary",
-      options: ARIA2_BINARIES,
-    },
-    {
-      key: "aria2Connections",
-      type: "number",
-      label: "Connections",
-      min: 1,
-      max: 16,
-    },
-  ],
-  gopeed: [
-    { key: "gopeedUrl", type: "text", label: "Server" },
-    { key: "gopeedToken", type: "text", label: "API token" },
-    { key: "gopeedPath", type: "text", label: "Download path" },
-    {
-      key: "gopeedConnections",
-      type: "number",
-      label: "Connections",
-      min: 1,
-      max: 64,
-      alias: "aria2Connections",
-    },
-  ],
-};
-
-function renderField(field, options, onChange) {
-  const key = field.alias || field.key;
-  const id = `f-${field.key}`;
-  const row = el("div", {
-    className: `field${field.type === "checkbox" ? " check" : ""}`,
+function settingsButton() {
+  const button = el("button", { title: "Open settings" }, "Settings");
+  button.addEventListener("click", () => {
+    api.runtime.openOptionsPage();
+    window.close();
   });
-  const label = el(
-    "label",
-    { htmlFor: id, title: field.help || "" },
-    field.label
-  );
-
-  let input;
-  if (field.type === "select") {
-    input = el("select", { id });
-    for (const value of field.options)
-      input.append(
-        el("option", { value, selected: options[key] === value }, value)
-      );
-  } else {
-    input = el("input", { id, type: field.type });
-    if (field.type === "checkbox") input.checked = Boolean(options[key]);
-    else input.value = options[key] ?? "";
-    if (field.min != null) input.min = field.min;
-    if (field.max != null) input.max = field.max;
-  }
-
-  input.title = field.help || "";
-  input.addEventListener("change", () =>
-    onChange({
-      [key]: field.type === "checkbox" ? input.checked : input.value,
-    })
-  );
-
-  if (field.type === "checkbox") row.append(input, label);
-  else row.append(label, input);
-
-  return row;
+  return button;
 }
 
-function renderOptions(options, onChange, onReset) {
-  const wrap = el("div", { className: "options" });
+/* ------------------------------------------------------------------ */
+/* Per-download options, collapsed by default                          */
+/* ------------------------------------------------------------------ */
 
-  const commandRow = el("div", { className: "field" });
-  const select = el("select", { id: "f-command" });
-  for (const [value, meta] of Object.entries(COMMANDS))
-    select.append(
-      el(
-        "option",
-        { value, selected: options.command === value, title: meta.help },
-        meta.label
-      )
-    );
-  select.addEventListener("change", () => onChange({ command: select.value }));
-  commandRow.append(el("label", { htmlFor: "f-command" }, "Command"), select);
-  wrap.append(commandRow);
+function renderOptions(options, onChange, onReset) {
+  // <details> remembers nothing on its own, so the open state is a stored
+  // preference: someone who tweaks flags on every download should not have to
+  // re-open the panel each time.
+  const wrap = el("details", {
+    className: "options",
+    open: Boolean(options.optionsExpanded),
+  });
+
+  wrap.append(el("summary", {}, "Options for this download"));
+  wrap.addEventListener("toggle", () => {
+    if (wrap.open !== Boolean(options.optionsExpanded))
+      send("setOptions", { optionsExpanded: wrap.open });
+  });
+
+  const body = el("div", { className: "options-body" });
+  body.append(renderField("command", options, onChange));
 
   const meta = COMMANDS[options.command];
-  if (meta?.help) wrap.append(el("p", { className: "hint" }, meta.help));
+  if (meta?.help) body.append(el("p", { className: "hint" }, meta.help));
 
-  const specific = el("fieldset");
-  specific.append(el("legend", {}, meta?.label || options.command));
-  for (const field of COMMAND_FIELDS[options.command] || [])
-    specific.append(renderField(field, options, onChange));
-  wrap.append(specific);
+  body.append(
+    renderFieldset(
+      meta?.label || options.command,
+      COMMAND_FIELDS[options.command] || [],
+      options,
+      onChange
+    ),
+    renderFieldset("All commands", COMMON_FIELDS, options, onChange)
+  );
 
-  const common = el("fieldset");
-  common.append(el("legend", {}, "All commands"));
-  for (const field of COMMON_FIELDS)
-    common.append(renderField(field, options, onChange));
-  wrap.append(common);
-
+  const footer = el("div", { className: "bar plain" });
   const reset = el("button", {}, "Reset to defaults");
   reset.addEventListener("click", onReset);
-  wrap.append(reset);
+  footer.append(reset, el("span", { className: "spacer" }), settingsButton());
+  body.append(footer);
 
+  wrap.append(body);
   return wrap;
 }
 
@@ -278,11 +130,11 @@ async function submitToQueue(request, options) {
 function showCommand(request, options) {
   clear();
 
-  const header = el("header");
   const back = el("button", {}, "← Back");
   back.addEventListener("click", () => start());
-  header.append(back, el("h1", {}, request.filename || "download"));
-  app.append(header);
+  app.append(
+    el("header", {}, [back, el("h1", {}, request.filename || "download")])
+  );
 
   let command;
   try {
@@ -327,9 +179,8 @@ function showCommand(request, options) {
   bar.append(el("span", { className: "spacer" }), status);
   app.append(bar);
 
-  const rerender = async (update) => {
+  const rerender = async (update) =>
     showCommand(request, await send("setOptions", update));
-  };
   const reset = async () => showCommand(request, await send("resetOptions"));
 
   app.append(renderOptions(options, rerender, reset));
@@ -341,17 +192,18 @@ function showCommand(request, options) {
 function showList(list, highlight, options) {
   clear();
 
+  const clearAll = el("button", {}, "Clear");
+  clearAll.addEventListener("click", async () => {
+    await send("clear");
+    showList([], 0, options);
+  });
+
   app.append(
     el("header", {}, [
       el("h1", {}, "cliget"),
-      (() => {
-        const clearAll = el("button", {}, "Clear");
-        clearAll.addEventListener("click", async () => {
-          await send("clear");
-          showList([], 0, options);
-        });
-        return clearAll;
-      })(),
+      el("span", { className: "spacer" }),
+      settingsButton(),
+      clearAll,
     ])
   );
 

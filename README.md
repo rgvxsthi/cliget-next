@@ -133,6 +133,19 @@ here, including both queue modes, works against either.
 
 ---
 
+## Settings
+
+The toolbar popup shows the command for the download you clicked, with a
+collapsible **Options for this download** panel underneath for one-off
+overrides. The panel remembers whether you left it open.
+
+Defaults for every download live on a separate settings page — the _Settings_
+button in the popup, or the addon's _Preferences_ / _Extension options_ entry.
+It covers the default command, header policy, connection count, per-backend
+flags, and the queue endpoints and tokens.
+
+---
+
 ## Install
 
 **Firefox** — `npm install && npm run build`, then load
