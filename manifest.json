@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "cliget-next",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "Download login-protected files from the command line with curl, wget, aria2 or a download queue.",
   "homepage_url": "https://github.com/rgvxsthi/cliget-next",
   "icons": {

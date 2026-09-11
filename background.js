@@ -52,9 +52,14 @@ function expireStaleRequests(now) {
     if (req.timestamp + REQUEST_TTL_MS < now) currentRequests.delete(id);
 }
 
+const BADGE_MAX = 99;
+
+/** The badge text doubles as the unseen count; "99+" still parses as 99. */
 async function bumpBadge() {
-  const text = await api.action.getBadgeText({});
-  await api.action.setBadgeText({ text: `${(+text || 0) + 1}` });
+  const count = (parseInt(await api.action.getBadgeText({}), 10) || 0) + 1;
+  await api.action.setBadgeText({
+    text: count > BADGE_MAX ? `${BADGE_MAX}+` : `${count}`,
+  });
 }
 
 function isDownloadable(details) {
@@ -190,4 +195,22 @@ api.webRequest.onErrorOccurred.addListener(
   { urls: ["<all_urls>"] }
 );
 
-api.action.setBadgeBackgroundColor({ color: "#4a90d9" });
+/**
+ * Match the badge to the toolbar icon: the icon's navy on light themes, and the
+ * light icon's grey with navy digits on dark ones. Chrome's service worker has
+ * no matchMedia and its toolbar icon never swaps, so it keeps the navy badge.
+ */
+const BADGE_NAVY = "#1C274C";
+const BADGE_LIGHT = "#E5E5E5";
+const darkScheme = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
+
+function styleBadge() {
+  const dark = darkScheme?.matches;
+  api.action.setBadgeBackgroundColor({
+    color: dark ? BADGE_LIGHT : BADGE_NAVY,
+  });
+  api.action.setBadgeTextColor({ color: dark ? BADGE_NAVY : "#FFFFFF" });
+}
+
+styleBadge();
+darkScheme?.addEventListener("change", styleBadge);

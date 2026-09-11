@@ -246,7 +246,7 @@ async function start() {
   ]);
 
   await api.action.setBadgeText({ text: "" });
-  showList(list, +badge || 0, options);
+  showList(list, parseInt(badge, 10) || 0, options);
 }
 
 start();
