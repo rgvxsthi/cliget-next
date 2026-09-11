@@ -59,8 +59,65 @@ jobs:
             echo "::error::Set the WEB_EXT_API_KEY and WEB_EXT_API_SECRET repository secrets"
             exit 1
           fi
-          npx --yes web-ext@8.10.0 sign --source-dir . \
-            --artifacts-dir "$RUNNER_TEMP/signed" --channel=unlisted
+          set -o pipefail
+          if ! npx --yes web-ext@8.10.0 sign --source-dir . \
+            --artifacts-dir "$RUNNER_TEMP/signed" --channel=unlisted 2>&1 |
+            tee "$RUNNER_TEMP/sign.log"; then
+            grep -q "Version $VERSION already exists" "$RUNNER_TEMP/sign.log" || exit 1
+            echo "::notice::AMO already signed $VERSION; downloading that copy"
+            echo "SIGNED_ELSEWHERE=1" >> "$GITHUB_ENV"
+          fi
+
+      # AMO refuses to sign a version twice, so a version signed outside this
+      # workflow (e.g. with `npm run sign`) is fetched instead. Inline rather
+      # than a script file because older tags predate the workflow.
+      - name: Download the copy AMO already signed
+        if: env.SIGNED_ELSEWHERE == '1'
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.WEB_EXT_API_SECRET }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { createHmac } from "node:crypto";
+          import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+
+          const { WEB_EXT_API_KEY: key, WEB_EXT_API_SECRET: secret } = process.env;
+          const manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
+          const guid = manifest.browser_specific_settings.gecko.id;
+
+          // The token web-ext sends: HS256 over { iss, iat, exp }.
+          function headers() {
+            const enc = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+            const iat = Math.floor(Date.now() / 1000);
+            const body = `${enc({ alg: "HS256" })}.${enc({ iss: key, iat, exp: iat + 300 })}`;
+            const sig = createHmac("sha256", secret).update(body).digest("base64url");
+            return { Authorization: `JWT ${body}.${sig}`, Accept: "application/json" };
+          }
+
+          async function get(url) {
+            const res = await fetch(url, { headers: headers() });
+            if (!res.ok) throw new Error(`GET ${url}: HTTP ${res.status}`);
+            return res;
+          }
+
+          let url = `https://addons.mozilla.org/api/v5/addons/addon/${encodeURIComponent(guid)}/versions/?filter=all_with_unlisted&page_size=50`;
+          let version;
+          while (url && !version) {
+            const page = await (await get(url)).json();
+            version = page.results.find((v) => v.version === manifest.version);
+            url = page.next;
+          }
+          const status = version?.file?.status;
+          if (status !== "public")
+            throw new Error(`AMO has no signed file for ${manifest.version} (status: ${status ?? "not found"})`);
+
+          mkdirSync(`${process.env.RUNNER_TEMP}/signed`, { recursive: true });
+          const xpi = await get(version.file.url);
+          writeFileSync(
+            `${process.env.RUNNER_TEMP}/signed/${manifest.version}.xpi`,
+            Buffer.from(await xpi.arrayBuffer())
+          );
+          EOF
 
       - name: Attach the signed .xpi to the release
         env:
