@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "cliget",
+  "name": "cliget-next",
   "version": "3.0.0",
   "description": "Download login-protected files from the command line with curl, wget, aria2 or a download queue.",
-  "homepage_url": "https://github.com/rgvxsthi/cliget",
+  "homepage_url": "https://github.com/rgvxsthi/cliget-next",
   "icons": {
     "48": "icons/cliget-48.png",
     "96": "icons/cliget-96.png",
@@ -17,7 +17,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "cliget",
+    "default_title": "cliget-next",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/cliget-dark-16.png",
@@ -38,7 +38,7 @@
   },
   "browser_specific_settings": {
     "gecko": {
-      "id": "cliget@zaidabdulla.com",
+      "id": "cliget-next@rgvxsthi.github.io",
       "strict_min_version": "128.0",
       "data_collection_permissions": {
         "required": ["none"]

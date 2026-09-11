@@ -1,4 +1,4 @@
-# cliget
+# cliget-next
 
 Turn any browser download into a command-line download — with the cookies,
 user agent and referrer of the original request, so login-protected files keep
@@ -148,9 +148,26 @@ flags, and the queue endpoints and tokens.
 
 ## Install
 
-**Firefox** — `npm install && npm run build`, then load
-`web-ext-artifacts/*.zip` via `about:debugging` → _Load Temporary Add-on_, or
-install the signed build from AMO.
+**Firefox (permanent install)** — release Firefox only keeps add-ons that
+Mozilla has signed. Signing as an _unlisted_ add-on is automatic, free, and
+does not publish anything on addons.mozilla.org:
+
+1. Create API credentials at
+   <https://addons.mozilla.org/developers/addon/api/key/>.
+2. Sign:
+   ```sh
+   npm install
+   WEB_EXT_API_KEY=user:… WEB_EXT_API_SECRET=… npm run sign
+   ```
+3. Open `about:addons` → ⚙ → _Install Add-on From File…_ → pick
+   the `.xpi` that signing wrote to `web-ext-artifacts/`.
+
+The add-on then survives restarts. Bump `version` in `manifest.json` before
+signing again — AMO rejects a version it has already signed.
+
+**Firefox (temporary, for development)** — `npm run build`, then load
+`web-ext-artifacts/*.zip` via `about:debugging` → _Load Temporary Add-on_.
+Removed when Firefox closes.
 
 **Chrome / Edge** — `chrome://extensions` → enable Developer mode → _Load
 unpacked_ → select this directory.

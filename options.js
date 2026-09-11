@@ -27,7 +27,7 @@ function render(options) {
 
   app.append(
     el("header", {}, [
-      el("h1", {}, "cliget settings"),
+      el("h1", {}, "cliget-next settings"),
       el("span", { className: "spacer" }),
       status,
     ])

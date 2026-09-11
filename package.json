@@ -1,5 +1,5 @@
 {
-  "name": "cliget",
+  "name": "cliget-next",
   "version": "3.0.0",
   "description": "Download login-protected files from the command line using curl, wget or aria2 - with sane, fast defaults.",
   "scripts": {
@@ -7,11 +7,12 @@
     "lint": "eslint . && web-ext lint --source-dir ./",
     "format": "prettier --write .",
     "start:firefox": "web-ext run --source-dir ./",
-    "build": "web-ext build --source-dir ./ --overwrite-dest"
+    "build": "web-ext build --source-dir ./ --overwrite-dest",
+    "sign": "web-ext sign --source-dir ./ --channel=unlisted"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zaidka/cliget.git"
+    "url": "git+https://github.com/rgvxsthi/cliget-next.git"
   },
   "keywords": [
     "cli",
@@ -27,9 +28,9 @@
   "author": "Zaid Abdulla <zaid@genieacs.com>",
   "license": "MPL-2.0",
   "bugs": {
-    "url": "https://github.com/zaidka/cliget/issues"
+    "url": "https://github.com/rgvxsthi/cliget-next/issues"
   },
-  "homepage": "https://github.com/zaidka/cliget#readme",
+  "homepage": "https://github.com/rgvxsthi/cliget-next#readme",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.9.1",

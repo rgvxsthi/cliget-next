@@ -200,7 +200,7 @@ function showList(list, highlight, options) {
 
   app.append(
     el("header", {}, [
-      el("h1", {}, "cliget"),
+      el("h1", {}, "cliget-next"),
       el("span", { className: "spacer" }),
       settingsButton(),
       clearAll,
