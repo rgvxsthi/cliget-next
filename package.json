@@ -1,6 +1,6 @@
 {
   "name": "cliget-next",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Download login-protected files from the command line using curl, wget or aria2 - with sane, fast defaults.",
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",

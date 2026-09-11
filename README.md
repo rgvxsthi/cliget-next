@@ -204,3 +204,6 @@ dependencies, which is what makes them directly unit-testable.
 ## License
 
 MPL-2.0, as upstream.
+
+The icon is "Download Twice Square" from [SVG Repo](https://www.svgrepo.com)
+(Solar icon set, CC BY 4.0).
