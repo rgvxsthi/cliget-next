@@ -1,0 +1,71 @@
+# Signs the release's source as an unlisted add-on on addons.mozilla.org and
+# attaches the signed .xpi to the release. Needs the WEB_EXT_API_KEY and
+# WEB_EXT_API_SECRET repository secrets (AMO API credentials).
+#
+# Runs on every published release. To sign an older release, run it by hand
+# from the Actions tab with that release's tag.
+name: Sign release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to sign, e.g. v3.0.2
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sign-${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    # AMO usually approves unlisted uploads in a few minutes.
+    timeout-minutes: 30
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # AMO signs each version once, so a tag that disagrees with the
+      # manifest would burn a version number on the wrong code.
+      - name: Check manifest version matches tag
+        run: |
+          version=$(jq -r .version manifest.json)
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::manifest.json version $version does not match tag $TAG"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - run: npm test
+
+      - name: Sign on addons.mozilla.org (unlisted)
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.WEB_EXT_API_SECRET }}
+        run: |
+          if [ -z "$WEB_EXT_API_KEY" ] || [ -z "$WEB_EXT_API_SECRET" ]; then
+            echo "::error::Set the WEB_EXT_API_KEY and WEB_EXT_API_SECRET repository secrets"
+            exit 1
+          fi
+          npx --yes web-ext@8.10.0 sign --source-dir . \
+            --artifacts-dir "$RUNNER_TEMP/signed" --channel=unlisted
+
+      - name: Attach the signed .xpi to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          xpi="$RUNNER_TEMP/cliget-next-$VERSION.xpi"
+          cp "$RUNNER_TEMP"/signed/*.xpi "$xpi"
+          gh release upload "$TAG" "$xpi" --clobber -R "$GITHUB_REPOSITORY"
