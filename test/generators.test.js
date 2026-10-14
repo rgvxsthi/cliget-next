@@ -84,6 +84,36 @@ test("aria2 connection count is clamped to what aria2 accepts", () => {
   assert.match(gen({ connections: "junk" }), /--split=16/);
 });
 
+test("aria2 uses one connection on hosts that break Range from byte 0", () => {
+  const vimm = (url) =>
+    generateCommand(
+      { ...REQUEST, url },
+      { ...defaultOptions, wrapLines: false, aria2Binary: "aria2-next" }
+    );
+
+  for (const url of [
+    "https://dl2.vimm.net/?mediaId=1&token=x",
+    "https://vimm.net/vault/1",
+  ]) {
+    const cmd = vimm(url);
+    assert.match(cmd, /--split=1 /);
+    assert.match(cmd, /--max-connection-per-server=1 /);
+    assert.match(cmd, /--continue=true/, "resume stays on");
+  }
+
+  assert.match(vimm("https://notvimm.net/f"), /--split=16/);
+  assert.match(vimm("https://vimm.net.evil.example/f"), /--split=16/);
+  assert.equal(
+    optionMap([], null, defaultOptions, "https://dl2.vimm.net/?a=1")["split"],
+    "1"
+  );
+  assert.equal(
+    aria2RpcPayload("https://dl2.vimm.net/?a=1", [], "x", defaultOptions)
+      .params[1]["max-connection-per-server"],
+    "1"
+  );
+});
+
 test("aria2 tuning can be turned off", () => {
   const cmd = gen({ aria2Tuning: false });
   assert.ok(!cmd.includes("--split="));
